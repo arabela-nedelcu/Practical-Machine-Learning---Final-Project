@@ -1,0 +1,131 @@
+---
+title: "PracticalML_FinalProject"
+author: "Arabela Nedelcu"
+date: '2022-11-18'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Overview
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+Data 
+The training data for this project are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment. 
+
+
+# Loading Libraries and Datasets
+
+```{r results='hide', message=FALSE, warning = FALSE}
+library(tidymodels)
+library(tidyverse)
+library(zoo)
+library(caret)
+library(knitr)
+set.seed(123)
+```
+
+```{r}
+traincsv <- read.csv("./test/pml-training.csv")
+testcsv <- read.csv("./test/pml-testing.csv")
+dim(traincsv)
+dim(testcsv)
+glimpse(traincsv)
+
+```
+
+Each dataset consists of 160 variables.
+Training dataset has 19622 observations. Test dataset has 20 observations.
+
+# Clean the Dataset
+
+1. Remove variable with more than 90% NAs.
+2. Remove variables with 0 variation
+3. Remove the unecessary columns
+
+```{r}
+
+trainf <- traincsv[,colMeans(is.na(traincsv)) < .9] 
+trainf <- trainf[,-c(1:7)] 
+trainf <- trainf[,-nearZeroVar(trainf)]
+```
+
+# Split The dataset into training and testing
+
+```{r}
+split <- initial_split(trainf, prop = 0.80, strata = classe)
+train <- training(split)
+dim(train)
+test  <-  testing(split)
+dim(test)
+```
+# Create the models 
+As we need to deal with a classification problem, i'll use random forest, SVM and gradient boosted trees to create the final model with cv = 3.
+After that we will analyse the confusion matrix for each model.
+
+### Random Forest
+
+```{r, cache=TRUE}
+
+repeat_cv <- trainControl(method="cv", number=3, verboseIter=FALSE)
+forest <- train(classe~., data=train, method="rf", trControl = repeat_cv, tuneLength = 5)
+pred_fr <- predict(forest, test)
+cmatfr <- confusionMatrix(pred_fr, factor(test$classe))
+cmatfr
+
+```
+**The Random Forest model has `r cmatfr$overall[1]` accuracy and `r 1-cmatfr$overall[1]` out of sample error rate.** 
+
+### Support Vector Machine
+
+```{r, cache=TRUE}
+svm <- train(classe~., data=train, method="svmLinear", trControl = repeat_cv)
+pred_svm <- predict(svm, test)
+cmatvm <- confusionMatrix(pred_svm, factor(test$classe))
+cmatvm
+```
+**The SVM model has `r cmatvm$overall[1]` accuracy and `r 1-cmatvm$overall[1]` out of sample error rate.** 
+
+### Gradient Boosted Trees
+
+```{r, cache=TRUE, message=FALSE, warning = FALSE}
+gbm <- train(classe~., data=train, method="gbm", trControl = repeat_cv, tuneLength = 5, verbose = F)
+pred_gbm <- predict(gbm, test)
+cmatgbm <- confusionMatrix(pred_gbm, factor(test$classe))
+cmatgbm
+```
+**The Gradient Boosted Trees model has `r cmatgbm$overall[1]` accuracy and `r 1-cmatgbm$overall[1]` out of sample error rate.** 
+
+### Fit the model that combines the predictors using test dataset
+
+```{r, cache=TRUE, message=FALSE, warning = FALSE}
+predDF <- data.frame(pred_fr, pred_svm, pred_gbm, classee = test$classe)
+combModFit <- train(classee ~., method = 'gam', data = predDF) 
+combPred <- predict(combModFit, predDF)
+cmatcomb <- confusionMatrix(combPred, factor(test$classe))
+cmatcomb
+```
+**The Combined model has `r cmatcomb$overall[1]` accuracy and `r 1-cmatcomb$overall[1]` out of sample error rate.** 
+
+
+# Predict classe on Test DataSet
+
+Because random forest had the best performance on our dataset, we will predict the classe outcome in test dataset using the **Ranfom Forest** model.
+
+```{r}
+pred_classe<- as.character(predict(forest, testcsv))
+
+predictions<- cbind(X = testcsv$X, user_name = testcsv$user_name, pred_classe)
+
+knitr::kable(predictions)
+```
